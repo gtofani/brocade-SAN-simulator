@@ -1,0 +1,1881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>switch:~# Brocade SAN CLI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0806;
+    --bg-darker: #050402;
+    --phosphor: #ffb000;
+    --phosphor-bright: #ffd060;
+    --phosphor-dim: #7a5a20;
+    --phosphor-faint: #3a2810;
+    --glow: rgba(255, 176, 0, 0.45);
+    --glow-strong: rgba(255, 208, 96, 0.7);
+    --error: #ff5555;
+    --success: #66ff99;
+    --info: #66ccff;
+    --magenta: #ff66cc;
+    --warn: #ffcc00;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    font-family: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+    color: var(--phosphor);
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+    user-select: none;
+    cursor: text;
+  }
+
+  /* CRT screen curvature & vignette */
+  .crt-frame {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%),
+      radial-gradient(ellipse at center, #15100a 0%, #0a0806 70%, #000 100%);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .crt-screen {
+    flex: 1;
+    position: relative;
+    background:
+      radial-gradient(ellipse at 50% 30%, rgba(255,176,0,0.04), transparent 60%),
+      linear-gradient(180deg, #0d0a07 0%, #0a0806 50%, #08060a 100%);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow:
+      inset 0 0 60px rgba(255,176,0,0.08),
+      inset 0 0 200px rgba(0,0,0,0.6),
+      0 0 40px rgba(255,176,0,0.05);
+    border: 1px solid #1a1408;
+  }
+
+  /* Phosphor scanlines */
+  .crt-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(0,0,0,0.18) 2px,
+      rgba(0,0,0,0.18) 3px
+    );
+    pointer-events: none;
+    z-index: 5;
+    mix-blend-mode: multiply;
+  }
+
+  /* Moving scanline */
+  .crt-screen::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    height: 100px;
+    background: linear-gradient(180deg, transparent 0%, rgba(255,176,0,0.04) 50%, transparent 100%);
+    pointer-events: none;
+    z-index: 6;
+    animation: scanline-move 7s linear infinite;
+    mix-blend-mode: screen;
+  }
+
+  @keyframes scanline-move {
+    0% { top: -100px; }
+    100% { top: 100%; }
+  }
+
+  /* Top status bar */
+  .status-bar {
+    position: relative;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 14px;
+    background: linear-gradient(180deg, rgba(255,176,0,0.08), transparent);
+    border-bottom: 1px solid rgba(255,176,0,0.18);
+    font-size: 12px;
+    color: var(--phosphor-dim);
+    letter-spacing: 0.04em;
+  }
+
+  .status-bar .left, .status-bar .right {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .led {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    animation: led-pulse 2s ease-in-out infinite;
+  }
+  .led.amber { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+
+  @keyframes led-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  /* Terminal body */
+  .terminal {
+    position: relative;
+    z-index: 3;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 18px 4px;
+    font-size: 14px;
+    line-height: 1.4;
+    scroll-behavior: smooth;
+  }
+
+  .terminal::-webkit-scrollbar { width: 8px; }
+  .terminal::-webkit-scrollbar-track { background: transparent; }
+  .terminal::-webkit-scrollbar-thumb {
+    background: var(--phosphor-faint);
+    border-radius: 4px;
+  }
+
+  /* Output line styles */
+  .line {
+    white-space: pre-wrap;
+    word-break: break-all;
+    text-shadow: 0 0 4px var(--glow);
+    animation: line-appear 0.05s linear;
+  }
+
+  @keyframes line-appear {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .line.prompt-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+  }
+
+  .line .cmd {
+    color: var(--phosphor-bright);
+    text-shadow: 0 0 6px var(--glow-strong);
+  }
+
+  .line.error { color: var(--error); text-shadow: 0 0 4px rgba(255,85,85,0.4); }
+  .line.success { color: var(--success); text-shadow: 0 0 4px rgba(102,255,153,0.4); }
+  .line.warn { color: var(--warn); }
+  .line.info { color: var(--info); }
+  .line.muted { color: var(--phosphor-dim); }
+  .line.dim { color: var(--phosphor-dim); text-shadow: none; }
+  .line.banner {
+    color: var(--phosphor-bright);
+    text-shadow: 0 0 8px var(--glow-strong);
+    font-weight: 500;
+  }
+  .line.table-header {
+    color: var(--phosphor-dim);
+    border-bottom: 1px dashed rgba(255,176,0,0.2);
+    margin-bottom: 2px;
+  }
+
+  /* Input area */
+  .input-line {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: baseline;
+    padding: 4px 18px 12px;
+    font-size: 14px;
+    min-height: 34px;
+  }
+
+  .prompt {
+    color: var(--phosphor-bright);
+    text-shadow: 0 0 6px var(--glow-strong);
+    white-space: nowrap;
+    margin-right: 8px;
+  }
+
+  .input-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: baseline;
+  }
+
+  .input-clone {
+    position: absolute;
+    left: 0;
+    visibility: hidden;
+    white-space: pre;
+    color: var(--phosphor-bright);
+  }
+
+  #cmd-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--phosphor-bright);
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    caret-color: transparent;
+    text-shadow: 0 0 6px var(--glow-strong);
+    padding: 0;
+    z-index: 2;
+  }
+
+  /* Custom cursor */
+  .cursor {
+    display: inline-block;
+    width: 9px;
+    height: 16px;
+    background: var(--phosphor-bright);
+    box-shadow: 0 0 6px var(--glow-strong), 0 0 12px var(--glow);
+    animation: cursor-blink 1s steps(1) infinite;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  @keyframes cursor-blink {
+    0%, 50% { opacity: 1; }
+    50.01%, 100% { opacity: 0; }
+  }
+
+  /* Boot fade overlay */
+  .boot-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: #000;
+    pointer-events: none;
+    animation: boot-fade 1.5s ease-out forwards;
+    animation-delay: 0.3s;
+  }
+
+  @keyframes boot-fade {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* Power-on flicker */
+  .crt-screen.power-on {
+    animation: power-on 1.2s ease-out;
+  }
+  @keyframes power-on {
+    0% { transform: scale(0.96); filter: brightness(2) saturate(0); opacity: 0; }
+    8% { transform: scale(1.01); filter: brightness(2.2) saturate(0.2); opacity: 0.6; }
+    15% { transform: scale(1); filter: brightness(1.5) saturate(0.6); opacity: 1; }
+    25% { filter: brightness(0.9) saturate(0.9); }
+    40% { filter: brightness(1.1) saturate(1); }
+    100% { transform: scale(1); filter: brightness(1) saturate(1); opacity: 1; }
+  }
+
+  /* Hint bar */
+  .hint-bar {
+    position: relative;
+    z-index: 4;
+    padding: 5px 14px;
+    background: rgba(0,0,0,0.4);
+    border-top: 1px solid rgba(255,176,0,0.12);
+    font-size: 11px;
+    color: var(--phosphor-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    letter-spacing: 0.05em;
+  }
+
+  .hint-bar kbd {
+    background: rgba(255,176,0,0.1);
+    border: 1px solid rgba(255,176,0,0.25);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--phosphor);
+    font-family: inherit;
+    font-size: 10px;
+    margin: 0 2px;
+  }
+
+  .hint-bar .tabs {
+    display: flex;
+    gap: 14px;
+  }
+
+  .hint-bar .tab {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    opacity: 0.7;
+  }
+  .hint-bar .tab.active { opacity: 1; color: var(--phosphor); }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    .terminal { font-size: 12px; padding: 6px 10px 2px; }
+    .input-line { padding: 4px 10px 10px; font-size: 12px; }
+    .status-bar { font-size: 10px; padding: 5px 8px; }
+    .status-bar .right .meta { display: none; }
+    .hint-bar { font-size: 10px; padding: 4px 8px; }
+    .hint-bar .tabs { gap: 8px; }
+  }
+</style>
+</head>
+<body>
+  <div class="crt-frame">
+    <div class="crt-screen power-on">
+      <!-- Status bar -->
+      <div class="status-bar">
+        <div class="left">
+          <span class="led" id="status-led"></span>
+          <span id="switch-name">SWITCH_01</span>
+          <span class="meta">| Brocade Fabric OS v8.2.3a</span>
+          <span class="meta">| WWN: 10:00:50:eb:1a:23:45:67</span>
+        </div>
+        <div class="right">
+          <span class="meta" id="session-time">SESSION 00:00:00</span>
+          <span class="meta" id="throughput">-- Mb/s</span>
+          <span id="conn-state">ONLINE</span>
+        </div>
+      </div>
+
+      <!-- Terminal output -->
+      <div class="terminal" id="terminal"></div>
+
+      <!-- Input line -->
+      <div class="input-line">
+        <span class="prompt" id="prompt-text">switch:admin&gt;</span>
+        <div class="input-wrapper">
+          <span class="input-clone" id="input-clone"></span>
+          <input id="cmd-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <span class="cursor" id="cursor"></span>
+        </div>
+      </div>
+
+      <!-- Hint bar -->
+      <div class="hint-bar">
+        <div class="tabs">
+          <span class="tab active"><kbd>Enter</kbd> execute</span>
+          <span class="tab"><kbd>Tab</kbd> complete</span>
+          <span class="tab"><kbd>↑↓</kbd> history</span>
+          <span class="tab"><kbd>Ctrl+L</kbd> clear</span>
+        </div>
+        <div>
+          <span id="hint-text">Type <kbd>help</kbd> for command reference</span>
+        </div>
+      </div>
+
+      <div class="boot-overlay"></div>
+    </div>
+  </div>
+
+<script>
+/* ============================================================
+   Brocade SAN Switch CLI Simulator
+   Interactive TTY with persistent switch state
+   ============================================================ */
+
+// ---------- Switch State ----------
+const switchState = {
+  switchName: 'SWITCH_01',
+  domainId: 1,
+  fabricOS: 'v8.2.3a',
+  wwn: '10:00:50:eb:1a:23:45:67',
+  firmware: '8.2.3a',
+  state: 'Online',
+  role: 'Principal',
+  EPorts: 8,
+  FPorts: 16,
+  temp: 38,
+  fanStatus: 'OK',
+  powerStatus: 'OK',
+  portStatus: generatePortStatus(),
+  aliases: [
+    { name: 'srv01_hba0', wwn: '21:00:00:24:ff:12:34:01' },
+    { name: 'srv01_hba1', wwn: '21:00:00:24:ff:12:34:02' },
+    { name: 'srv02_hba0', wwn: '21:00:00:24:ff:56:78:01' },
+    { name: 'srv02_hba1', wwn: '21:00:00:24:ff:56:78:02' },
+    { name: 'stor_array_a', wwn: '20:01:00:a0:b8:cc:01:01' },
+    { name: 'stor_array_b', wwn: '20:02:00:a0:b8:cc:01:02' },
+    { name: 'stor_tape_lib', wwn: '20:03:00:a0:b8:cc:01:03' },
+    { name: 'backup_host', wwn: '21:01:00:24:ff:9a:bc:01' }
+  ],
+  zones: [
+    { name: 'zone_srv01_stor', members: ['srv01_hba0', 'stor_array_a'] },
+    { name: 'zone_srv02_stor', members: ['srv02_hba0', 'stor_array_b'] },
+    { name: 'zone_backup_tape', members: ['backup_host', 'stor_tape_lib'] },
+    { name: 'zone_srv01_stor_b', members: ['srv01_hba1', 'stor_array_b'] },
+    { name: 'zone_srv02_stor_a', members: ['srv02_hba1', 'stor_array_a'] }
+  ],
+  configs: [
+    { name: 'PROD_CFG', zones: ['zone_srv01_stor', 'zone_srv02_stor', 'zone_srv01_stor_b', 'zone_srv02_stor_a'] },
+    { name: 'BACKUP_CFG', zones: ['zone_backup_tape'] }
+  ],
+  activeConfig: 'PROD_CFG',
+  unsavedChanges: false,
+  loggedIn: false,
+  currentUser: 'admin',
+  loginAttempts: 0,
+  bootTime: Date.now()
+};
+
+function generatePortStatus() {
+  const ports = [];
+  const states = ['Online', 'Online', 'Online', 'Online', 'Online', 'No_Sync', 'Online', 'Online',
+                  'Online', 'Online', 'Disabled', 'Online', 'Online', 'No_Light', 'Online', 'Online',
+                  'Online', 'Online', 'Online', 'Online', 'Online', 'Online', 'Online', 'Online'];
+  for (let i = 0; i < 24; i++) {
+    ports.push({
+      index: i,
+      wwn: `10:00:50:eb:1a:23:${(0x45 + i).toString(16).padStart(2,'0')}:00`,
+      module: 'Combo (8G FC + 10G Eth)',
+      state: states[i] || 'Online',
+      speed: states[i] === 'Online' ? '8G' : '--',
+      proto: 'FC',
+      comment: ''
+    });
+  }
+  return ports;
+}
+
+// ---------- Command Registry ----------
+const commands = {
+  help: {
+    desc: 'Display available commands',
+    usage: 'help [command]',
+    fn: cmdHelp
+  },
+  ls: {
+    desc: 'List files in current directory',
+    usage: 'ls [-l] [path]',
+    fn: cmdLs
+  },
+  pwd: {
+    desc: 'Print working directory',
+    usage: 'pwd',
+    fn: () => ['/']
+  },
+  cat: {
+    desc: 'Display file contents',
+    usage: 'cat <file>',
+    fn: cmdCat
+  },
+  clear: {
+    desc: 'Clear terminal screen',
+    usage: 'clear',
+    fn: () => { clearTerminal(); return []; }
+  },
+  switchshow: {
+    desc: 'Display switch information and port status',
+    usage: 'switchshow',
+    fn: cmdSwitchShow
+  },
+  switchstatus: {
+    desc: 'Display overall switch health',
+    usage: 'switchstatus',
+    fn: cmdSwitchStatus
+  },
+  portshow: {
+    desc: 'Display detailed port information',
+    usage: 'portshow <port>',
+    fn: cmdPortShow
+  },
+  portenable: {
+    desc: 'Enable a port',
+    usage: 'portenable <port>',
+    fn: cmdPortEnable
+  },
+  portdisable: {
+    desc: 'Disable a port',
+    usage: 'portdisable <port>',
+    fn: cmdPortDisable
+  },
+  alicreate: {
+    desc: 'Create alias for WWN',
+    usage: 'alicreate "alias", "WWN"',
+    fn: cmdAliCreate
+  },
+  alidelete: {
+    desc: 'Delete alias',
+    usage: 'alidelete "alias"',
+    fn: cmdAliDelete
+  },
+  alishow: {
+    desc: 'Display aliases',
+    usage: 'alishow [pattern]',
+    fn: cmdAliShow
+  },
+  zonecreate: {
+    desc: 'Create a zone',
+    usage: 'zonecreate "zone", "member1; member2"',
+    fn: cmdZoneCreate
+  },
+  zonedelete: {
+    desc: 'Delete a zone',
+    usage: 'zonedelete "zone"',
+    fn: cmdZoneDelete
+  },
+  zoneadd: {
+    desc: 'Add member to existing zone',
+    usage: 'zoneadd "zone", "member1; member2"',
+    fn: cmdZoneAdd
+  },
+  zoneremove: {
+    desc: 'Remove member from zone',
+    usage: 'zoneremove "zone", "member"',
+    fn: cmdZoneRemove
+  },
+  zoneshow: {
+    desc: 'Display zones',
+    usage: 'zoneshow [zone]',
+    fn: cmdZoneShow
+  },
+  cfgcreate: {
+    desc: 'Create a zone configuration',
+    usage: 'cfgcreate "cfg", "zone1; zone2"',
+    fn: cmdCfgCreate
+  },
+  cfgdelete: {
+    desc: 'Delete a zone configuration',
+    usage: 'cfgdelete "cfg"',
+    fn: cmdCfgDelete
+  },
+  cfgadd: {
+    desc: 'Add zones to a configuration',
+    usage: 'cfgadd "cfg", "zone1; zone2"',
+    fn: cmdCfgAdd
+  },
+  cfgremove: {
+    desc: 'Remove zones from a configuration',
+    usage: 'cfgremove "cfg", "zone1"',
+    fn: cmdCfgRemove
+  },
+  cfgshow: {
+    desc: 'Display zone configurations',
+    usage: 'cfgshow',
+    fn: cmdCfgShow
+  },
+  cfgsave: {
+    desc: 'Save zone configuration to flash',
+    usage: 'cfgsave',
+    fn: cmdCfgSave
+  },
+  cfgenable: {
+    desc: 'Enable a zone configuration',
+    usage: 'cfgenable "cfg"',
+    fn: cmdCfgEnable
+  },
+  cfgdisable: {
+    desc: 'Disable zoning (returns to soft zone)',
+    usage: 'cfgdisable',
+    fn: cmdCfgDisable
+  },
+  firmwareshow: {
+    desc: 'Display firmware version',
+    usage: 'firmwareshow',
+    fn: cmdFirmwareShow
+  },
+  firmwaredownload: {
+    desc: 'Download new firmware',
+    usage: 'firmwaredownload [-s] <host:path>',
+    fn: cmdFirmwareDownload
+  },
+  chassisshow: {
+    desc: 'Display chassis information',
+    usage: 'chassisshow',
+    fn: cmdChassisShow
+  },
+  tempshow: {
+    desc: 'Display temperature sensors',
+    usage: 'tempshow',
+    fn: cmdTempShow
+  },
+  fanshow: {
+    desc: 'Display fan status',
+    usage: 'fanshow',
+    fn: cmdFanShow
+  },
+  psshow: {
+    desc: 'Display power supply status',
+    usage: 'psshow',
+    fn: cmdPsShow
+  },
+  sensorshow: {
+    desc: 'Display all sensor data',
+    usage: 'sensorshow',
+    fn: cmdSensorShow
+  },
+  date: {
+    desc: 'Display or set system date',
+    usage: 'date [MMDDHHMMYYYY]',
+    fn: cmdDate
+  },
+  uptime: {
+    desc: 'Show system uptime',
+    usage: 'uptime',
+    fn: cmdUptime
+  },
+  nsshow: {
+    desc: 'Display name server entries',
+    usage: 'nsshow',
+    fn: cmdNsShow
+  },
+  nsallshow: {
+    desc: 'Display all name server entries',
+    usage: 'nsallshow',
+    fn: cmdNsAllShow
+  },
+  fabricshow: {
+    desc: 'Display fabric topology',
+    usage: 'fabricshow',
+    fn: cmdFabricShow
+  },
+  topologyshow: {
+    desc: 'Display fabric topology',
+    usage: 'topologyshow',
+    fn: cmdTopologyShow
+  },
+  traceroute: {
+    desc: 'Trace route to destination',
+    usage: 'traceroute <ip>',
+    fn: cmdTraceroute
+  },
+  ping: {
+    desc: 'Send ICMP echo requests',
+    usage: 'ping <host>',
+    fn: cmdPing
+  },
+  ipaddrshow: {
+    desc: 'Display IP configuration',
+    usage: 'ipaddrshow',
+    fn: cmdIpAddrShow
+  },
+  version: {
+    desc: 'Display Fabric OS version',
+    usage: 'version',
+    fn: cmdVersion
+  },
+  whoami: {
+    desc: 'Display current user',
+    usage: 'whoami',
+    fn: () => [switchState.currentUser]
+  },
+  history: {
+    desc: 'Display command history',
+    usage: 'history',
+    fn: () => commandHistory.map((c, i) => ` ${String(i + 1).padStart(4)}  ${c}`)
+  },
+  echo: {
+    desc: 'Display text',
+    usage: 'echo <text>',
+    fn: (args) => [args.join(' ')]
+  },
+  about: {
+    desc: 'About this terminal',
+    usage: 'about',
+    fn: cmdAbout
+  },
+  exit: {
+    desc: 'Logout from session',
+    usage: 'exit',
+    fn: () => {
+      switchState.loggedIn = false;
+      setTimeout(() => {
+        clearTerminal();
+        printLoginBanner();
+      }, 600);
+      return ['Connection closed.'];
+    }
+  },
+  logout: {
+    desc: 'Logout from session',
+    usage: 'logout',
+    fn: () => commands.exit.fn()
+  }
+};
+
+// ---------- Filesystem (for ls/cat) ----------
+const filesystem = {
+  'README.txt': `Brocade 6520 Switch Configuration Notes
+======================================
+Generated: ${new Date().toDateString()}
+Author: SAN Admin Team
+
+This switch is configured for the production fabric at DC-East-2.
+
+Active zone config: PROD_CFG
+Total zones: ${switchState.zones.length}
+Total aliases: ${switchState.aliases.length}
+
+For changes, ALWAYS:
+  1. Modify zone/alias
+  2. cfgenable "CFG_NAME"
+  3. cfgsave
+  4. Verify with zoneshow`,
+  'CONFIG.bak': `ConfigName: PROD_CFG
+Defined zones:
+ ${switchState.zones.map(z => `  - ${z.name}: ${z.members.join(', ')}`).join('\n')}`,
+  'CHANGELOG': `r2024-03-15  admin   Added zone_srv02_stor_a for path redundancy
+r2024-02-28  admin   Firmware upgraded to v8.2.3a
+r2024-01-10  admin   Initial production config deployment`,
+  'fabos.cfg': `# Fabric OS Configuration
+switchName: ${switchState.switchName}
+domainId: ${switchState.domainId}
+firmware: ${switchState.firmware}
+rscnMode: 1
+edgeFabric: 0`
+};
+
+// ---------- Terminal Engine ----------
+const term = document.getElementById('terminal');
+const input = document.getElementById('cmd-input');
+const promptText = document.getElementById('prompt-text');
+const inputClone = document.getElementById('input-clone');
+const cursor = document.getElementById('cursor');
+const statusLed = document.getElementById('status-led');
+const switchNameEl = document.getElementById('switch-name');
+const connStateEl = document.getElementById('conn-state');
+const sessionTimeEl = document.getElementById('session-time');
+const throughputEl = document.getElementById('throughput');
+const hintText = document.getElementById('hint-text');
+
+const commandHistory = [];
+let historyIdx = -1;
+let busy = false;
+
+function pad(str, n, ch = ' ') {
+  str = String(str);
+  return str.length >= n ? str : str + ch.repeat(n - str.length);
+}
+function padR(str, n, ch = ' ') {
+  str = String(str);
+  return str.length >= n ? str : ch.repeat(n - str.length) + str;
+}
+
+function print(text = '', cls = '') {
+  const line = document.createElement('div');
+  line.className = 'line' + (cls ? ' ' + cls : '');
+  line.textContent = text;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+  return line;
+}
+
+function printHTML(html, cls = '') {
+  const line = document.createElement('div');
+  line.className = 'line' + (cls ? ' ' + cls : '');
+  line.innerHTML = html;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+  return line;
+}
+
+function clearTerminal() {
+  term.innerHTML = '';
+}
+
+function typePrint(text, cls = '', delay = 12) {
+  return new Promise(resolve => {
+    const line = document.createElement('div');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    term.appendChild(line);
+    let i = 0;
+    function step() {
+      if (i < text.length) {
+        line.textContent = text.slice(0, i + 1);
+        term.scrollTop = term.scrollHeight;
+        i++;
+        setTimeout(step, delay);
+      } else {
+        resolve();
+      }
+    }
+    step();
+  });
+}
+
+async function typeLines(lines, opts = {}) {
+  const { delay = 12, lineDelay = 30, clsMap = {} } = opts;
+  for (const ln of lines) {
+    if (typeof ln === 'object' && ln !== null) {
+      await typePrint(ln.text, ln.cls || '', delay);
+      if (lineDelay) await wait(lineDelay);
+    } else {
+      await typePrint(ln, '', delay);
+      if (lineDelay) await wait(lineDelay);
+    }
+  }
+}
+
+function wait(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function updatePrompt() {
+  const user = switchState.currentUser || 'admin';
+  promptText.textContent = `${switchState.switchName}:${user}> `;
+  updateCursor();
+}
+
+function updateCursor() {
+  // Position cursor based on text in input
+  const val = input.value;
+  inputClone.textContent = val.slice(0, input.selectionStart);
+  const w = inputClone.offsetWidth;
+  cursor.style.left = w + 'px';
+  // Show cursor only at end (simple approach)
+  if (input.selectionStart === val.length) {
+    cursor.style.display = 'inline-block';
+  } else {
+    cursor.style.display = 'inline-block';
+  }
+}
+
+function focusInput() {
+  if (!busy) input.focus();
+}
+
+// ---------- Boot sequence ----------
+async function bootSequence() {
+  busy = true;
+  input.disabled = true;
+  cursor.style.display = 'none';
+
+  await wait(400);
+
+  const boot = [
+    { text: 'Brocade Fabric OS Boot Loader v1.0.6', cls: 'banner' },
+    { text: 'Copyright (c) 2004-2024 Brocade Communications Systems, Inc.', cls: 'dim' },
+    { text: '' },
+    { text: 'POST: CPU test ....................... PASS', cls: 'success' },
+    { text: 'POST: Memory test .................... PASS (8192 MB)', cls: 'success' },
+    { text: 'POST: ASIC initialization ........... PASS', cls: 'success' },
+    { text: 'POST: Port blade 0 ................... PASS', cls: 'success' },
+    { text: 'POST: Port blade 1 ................... PASS', cls: 'success' },
+    { text: 'POST: FC Forwarder ................... PASS', cls: 'success' },
+    { text: 'POST: Crossbar ....................... PASS', cls: 'success' },
+    { text: 'POST: LED test ....................... PASS', cls: 'success' },
+    { text: 'POST: Temperature sensors ............ PASS', cls: 'success' },
+    { text: 'POST: Fan tray ....................... PASS', cls: 'success' },
+    { text: 'POST: Power supply 1 ................. PASS', cls: 'success' },
+    { text: 'POST: Power supply 2 ................. PASS', cls: 'success' },
+    { text: '' },
+    { text: 'Loading Fabric OS kernel from flash ...', cls: 'dim' },
+    { text: 'Decompressing: 100%', cls: 'dim' },
+    { text: '' },
+    { text: 'Fabric OS release 8.2.3a (bxps)', cls: 'banner' },
+    { text: 'Build time: Mar 15 2024 11:42:08 EST', cls: 'dim' },
+    { text: '' },
+    { text: 'Initializing switch fabric ...', cls: 'dim' },
+    { text: 'Initializing name server ...', cls: 'dim' },
+    { text: 'Initializing zoning database ...', cls: 'dim' },
+    { text: 'Loading configuration from NVRAM ...', cls: 'dim' },
+    { text: 'Bringing ports online ...................', cls: 'dim' },
+    { text: '' }
+  ];
+
+  for (const ln of boot) {
+    await typePrint(ln.text, ln.cls, ln.cls === 'banner' ? 8 : 5);
+    await wait(30);
+  }
+
+  // Simulated port bring-up
+  const portCnt = switchState.portStatus.filter(p => p.state === 'Online').length;
+  await typePrint(`Switch is online. ${portCnt} of ${switchState.portStatus.length} ports active.`, 'success');
+  await wait(150);
+  print('');
+  await typePrint(`Login to ${switchState.switchName} - Brocade ${switchState.fabricOS}`, 'banner', 6);
+  print('');
+  await typePrint('User Name: admin', 'dim', 4);
+  await wait(200);
+  await typePrint('Password: ********', 'dim', 4);
+  await wait(400);
+  print('');
+  await typePrint('Authentication successful. Welcome, admin.', 'success', 6);
+  print('');
+
+  busy = false;
+  input.disabled = false;
+  cursor.style.display = 'inline-block';
+  switchState.loggedIn = true;
+  switchState.bootTime = Date.now();
+  updatePrompt();
+  focusInput();
+  printLoginBanner();
+}
+
+function printLoginBanner() {
+  const banner = `
+░▒▓██████▓▒░░▒▓█▓▒░▒▓██████▓▒░ ▒▓██████▓▒░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░  ▒▓█▓▒░░▒▓█▓▒░  ▒▓█▓▒░ ▒▓█▓▒  ▒▓█▓▒░
+░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░  ▒▓█▓▒░░▒▓█▓▒░  ▒▓█▓▒░ ▒▓█▓▒  ▒▓█▓▒░
+░▒▓██████▓▒░░▒▓█▓▒░  ▒▓█▓▒░░▒▓█▓▒░  ▒▓█▓▒░ ▒▓█▓▒  ▒▓█▓▒░
+░▒▓█▓▒░     ▒▓█▓▒░  ▒▓█▓▒░░▒▓█▓▒░  ▒▓█▓▒░ ▒▓█▓▒  ▒▓█▓▒░
+░▒▓█▓▒░     ▒▓█▓▒░  ▒▓█▓▒░░▒▓█▓▒░  ▒▓█▓▒░ ▒▓█▓▒  ▒▓█▓▒░
+░▒▓█▓▒░     ▒▓█▓▒░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░`;
+  printHTML(`<pre style="color:var(--phosphor-bright);text-shadow:0 0 8px var(--glow-strong);font-size:11px;line-height:1.1;margin:0">${banner}</pre>`);
+  print('');
+  print('Brocade Communications Systems, Inc.');
+  print('Fabric OS v8.2.3a   |   Switch 6520   |   24-Port 8G FC');
+  print('Copyright (c) 2004-2024 Brocade. All rights reserved.');
+  print('');
+  print(`Switch: ${switchState.switchName}   WWN: ${switchState.wwn}`);
+  print(`Domain: ${switchState.domainId}   State: ${switchState.state}   Role: ${switchState.role}`);
+  print('');
+  print('Type "help" for command reference, "switchshow" for status.', 'dim');
+  print('');
+}
+
+// ---------- Argument Parsing ----------
+function parseArgs(line) {
+  // Split by spaces but respect quoted strings
+  const tokens = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQuote = !inQuote; continue; }
+    if (c === ' ' && !inQuote) {
+      if (cur) tokens.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  if (cur) tokens.push(cur);
+  return tokens;
+}
+
+// ---------- Command Implementations ----------
+function cmdHelp(args) {
+  const target = args[0];
+  const out = [];
+  if (target && commands[target]) {
+    out.push(`NAME`);
+    out.push(`  ${target} - ${commands[target].desc}`);
+    out.push('');
+    out.push(`SYNOPSIS`);
+    out.push(`  ${commands[target].usage}`);
+    out.push('');
+  } else {
+    out.push('Available commands:');
+    out.push('');
+    const keys = Object.keys(commands).sort();
+    for (const k of keys) {
+      out.push(`  ${pad(k, 16)} ${commands[k].desc}`);
+    }
+    out.push('');
+    out.push('Type "help <command>" for detailed usage.', 'dim');
+  }
+  return out;
+}
+
+function cmdLs(args) {
+  const long = args.includes('-l');
+  const files = Object.keys(filesystem);
+  if (long) {
+    const out = ['total ' + files.length, ''];
+    for (const f of files) {
+      const size = (filesystem[f].length / 1024).toFixed(2);
+      out.push(`-rw-r--r--  admin  fabric   ${padR(size, 8)}K  Mar 15  ${f}`);
+    }
+    return out;
+  }
+  return [files.join('   ')];
+}
+
+function cmdCat(args) {
+  if (!args[0]) return ['cat: missing file operand', '', 'Usage: cat <file>', ''];
+  const fname = args[0];
+  if (!filesystem[fname]) {
+    return [`cat: ${fname}: No such file or directory`, ''];
+  }
+  return filesystem[fname].split('\n');
+}
+
+function cmdSwitchShow() {
+  const out = [];
+  const s = switchState;
+  out.push(`switchName:     ${s.switchName}`);
+  out.push(`switchType:     65.2 (Brocade 6520)`);
+  out.push(`switchState:    ${s.state}    (License OK)`);
+  out.push(`switchMode:      Native`);
+  out.push(`switchRole:     ${s.role}`);
+  out.push(`switchDomain:   ${s.domainId}`);
+  out.push(`switchId:       fffc01`);
+  out.push(`switchWwn:      ${s.wwn}`);
+  out.push(`zoningMode:     Active`);
+  out.push(`activeConfig:   ${s.activeConfig}`);
+  out.push(`defaultConfig:  ${s.activeConfig}`);
+  out.push(`opMode:         Native (Native)`);
+  out.push('');
+  out.push(`FID:  1   Name: ${s.switchName}   Domain:  ${s.domainId}   SwitchID: fffc01`);
+  out.push('');
+  out.push('Index Port  Address  Media  Speed  State  Proto  Comment');
+  out.push('---- ----  -------  -----  -----  -----  -----  -------');
+  for (const p of s.portStatus) {
+    const idx = pad(p.index, 4);
+    const port = pad(p.index, 4);
+    const addr = '0x' + (0xfffc01 + p.index * 0x10000).toString(16).slice(0, 6) + '00';
+    const addrStr = pad(addr, 7);
+    const media = pad('FC', 5);
+    const speed = pad(p.speed, 5);
+    const state = pad(p.state, 5);
+    const proto = pad(p.proto, 5);
+    let stateCls = '';
+    if (p.state === 'Online') stateCls = 'success';
+    else if (p.state === 'Disabled') stateCls = 'dim';
+    else stateCls = 'warn';
+    out.push({ text: `${idx} ${port}  ${addrStr}  ${media}  ${speed}  ${state}  ${proto}  ${p.comment || ''}`, cls: stateCls });
+  }
+  out.push('');
+  return out;
+}
+
+function cmdSwitchStatus() {
+  const out = [];
+  out.push('Switch Status Report');
+  out.push('===================');
+  out.push('');
+  out.push(`Health:        ${switchState.state === 'Online' ? 'HEALTHY' : 'NOT HEALTHY'}`, switchState.state === 'Online' ? 'success' : 'error');
+  out.push(`State:         ${switchState.state}`);
+  out.push(`Temperature:   ${switchState.temp}°C  ${switchState.temp < 50 ? '(Normal)' : '(Warning)'}`, switchState.temp < 50 ? 'success' : 'warn');
+  out.push(`Fans:          ${switchState.fanStatus}`, 'success');
+  out.push(`Power Supply:  ${switchState.powerStatus}`, 'success');
+  out.push(`Flash:         OK`);
+  out.push(`Battery:       OK`);
+  out.push('');
+  out.push(`Active zones:   ${switchState.zones.length}`);
+  out.push(`Defined alias:  ${switchState.aliases.length}`);
+  out.push(`Active config:  ${switchState.activeConfig}`);
+  out.push(`Unsaved changes: ${switchState.unsavedChanges ? 'YES' : 'no'}`, switchState.unsavedChanges ? 'warn' : 'dim');
+  out.push('');
+  return out;
+}
+
+function cmdPortShow(args) {
+  if (args.length === 0) return ['portShow: missing port number', 'Usage: portshow <port>'];
+  const idx = parseInt(args[0]);
+  if (isNaN(idx) || idx < 0 || idx >= switchState.portStatus.length) {
+    return [`portShow: invalid port number: ${args[0]}`];
+  }
+  const p = switchState.portStatus[idx];
+  const out = [];
+  out.push(`Port number: ${p.index}`);
+  out.push(`PortName:   ${p.index < 10 ? 'port0' + p.index : 'port' + p.index}`);
+  out.push(`DeviceData:  ${p.module}`);
+  out.push(`PortState:   ${p.state}`, p.state === 'Online' ? 'success' : 'warn');
+  out.push(`PortPhyState: Ready`);
+  out.push(`PortLvl:     2`);
+  out.push(`PortSpeed:   ${p.speed}`);
+  out.push(`Protocol:    ${p.proto}`);
+  out.push(`PortWWN:     ${p.wwn}`);
+  out.push('');
+  out.push('Statistics:');
+  out.push(`  Tx Words:    ${(Math.random() * 1e9).toFixed(0)}`);
+  out.push(`  Rx Words:    ${(Math.random() * 1e9).toFixed(0)}`);
+  out.push(`  Tx Frames:   ${(Math.random() * 1e7).toFixed(0)}`);
+  out.push(`  Rx Frames:   ${(Math.random() * 1e7).toFixed(0)}`);
+  out.push(`  Error Frames: 0`);
+  out.push(`  CRC errors:   0`);
+  out.push(`  Link failures: 0`);
+  out.push('');
+  return out;
+}
+
+function cmdPortEnable(args) {
+  if (args.length === 0) return ['portEnable: missing port number', 'Usage: portenable <port>'];
+  const idx = parseInt(args[0]);
+  if (isNaN(idx) || idx < 0 || idx >= switchState.portStatus.length) {
+    return [`portEnable: invalid port number: ${args[0]}`];
+  }
+  switchState.portStatus[idx].state = 'Online';
+  switchState.portStatus[idx].speed = '8G';
+  switchState.unsavedChanges = true;
+  return [`Port ${idx} enabled.`, '', 'Note: Use cfgsave to persist changes.', ''];
+}
+
+function cmdPortDisable(args) {
+  if (args.length === 0) return ['portDisable: missing port number', 'Usage: portdisable <port>'];
+  const idx = parseInt(args[0]);
+  if (isNaN(idx) || idx < 0 || idx >= switchState.portStatus.length) {
+    return [`portDisable: invalid port number: ${args[0]}`];
+  }
+  switchState.portStatus[idx].state = 'Disabled';
+  switchState.portStatus[idx].speed = '--';
+  switchState.unsavedChanges = true;
+  return [`Port ${idx} disabled.`, '', 'Note: Use cfgsave to persist changes.', ''];
+}
+
+function parseArgsQuoted(args, expected) {
+  // args is array after command name
+  // Returns parsed values; handles "a", "b" form
+  const joined = args.join(' ');
+  const matches = joined.match(/"([^"]+)"/g);
+  if (!matches) return [];
+  return matches.map(m => m.replace(/"/g, ''));
+}
+
+function cmdAliCreate(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['alicreate: missing arguments', '', 'Usage: alicreate "alias", "WWN"', 'Example: alicreate "srv01_hba0", "21:00:00:24:ff:12:34:01"', ''];
+  const [alias, wwn] = parsed;
+  if (switchState.aliases.find(a => a.name === alias)) {
+    return [`alicreate: alias "${alias}" already exists`, ''];
+  }
+  if (!/^([0-9a-fA-F]{2}:){7}[0-9a-fA-F]{2}$/.test(wwn)) {
+    return [`alicreate: invalid WWN format: ${wwn}`, 'WWN must be in format XX:XX:XX:XX:XX:XX:XX:XX', ''];
+  }
+  switchState.aliases.push({ name: alias, wwn });
+  switchState.unsavedChanges = true;
+  return [`Alias "${alias}" created for ${wwn}.`, '', 'Run cfgsave to persist this change.', ''];
+}
+
+function cmdAliDelete(args) {
+  const parsed = parseArgsQuoted(args, 1);
+  if (parsed.length < 1) return ['alidelete: missing arguments', '', 'Usage: alidelete "alias"', ''];
+  const alias = parsed[0];
+  const idx = switchState.aliases.findIndex(a => a.name === alias);
+  if (idx === -1) return [`alidelete: alias "${alias}" not found`, ''];
+  // Check if used in zones
+  const usedIn = switchState.zones.filter(z => z.members.includes(alias));
+  if (usedIn.length > 0) {
+    return [`alidelete: cannot delete "${alias}", still in use by zones:`, ...usedIn.map(z => `  - ${z.name}`), '', 'Remove from zones first.', ''];
+  }
+  switchState.aliases.splice(idx, 1);
+  switchState.unsavedChanges = true;
+  return [`Alias "${alias}" deleted.`, ''];
+}
+
+function cmdAliShow(args) {
+  const out = [];
+  const pattern = args[0] || '';
+  const aliases = pattern
+    ? switchState.aliases.filter(a => a.name.includes(pattern))
+    : switchState.aliases;
+  out.push('Defined aliases:');
+  out.push('');
+  if (aliases.length === 0) {
+    out.push('(none)', 'dim');
+  } else {
+    for (const a of aliases) {
+      out.push(`  alias: ${a.name}`);
+      out.push(`    ${a.wwn}`, 'dim');
+    }
+  }
+  out.push('');
+  return out;
+}
+
+function cmdZoneCreate(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['zonecreate: missing arguments', '', 'Usage: zonecreate "zone", "member1; member2"', 'Members can be aliases or WWNs separated by semicolons', ''];
+  const [zone, membersStr] = parsed;
+  if (switchState.zones.find(z => z.name === zone)) {
+    return [`zonecreate: zone "${zone}" already exists`, ''];
+  }
+  const members = membersStr.split(';').map(m => m.trim()).filter(Boolean);
+  switchState.zones.push({ name: zone, members });
+  switchState.unsavedChanges = true;
+  return [`Zone "${zone}" created with members: ${members.join(', ')}`, ''];
+}
+
+function cmdZoneDelete(args) {
+  const parsed = parseArgsQuoted(args, 1);
+  if (parsed.length < 1) return ['zonedelete: missing arguments', '', 'Usage: zonedelete "zone"', ''];
+  const zone = parsed[0];
+  const idx = switchState.zones.findIndex(z => z.name === zone);
+  if (idx === -1) return [`zonedelete: zone "${zone}" not found`, ''];
+  // Remove from configs
+  for (const cfg of switchState.configs) {
+    const i = cfg.zones.indexOf(zone);
+    if (i !== -1) cfg.zones.splice(i, 1);
+  }
+  switchState.zones.splice(idx, 1);
+  switchState.unsavedChanges = true;
+  return [`Zone "${zone}" deleted.`, '', 'Note: Removed from any configs that contained it.', ''];
+}
+
+function cmdZoneAdd(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['zoneadd: missing arguments', '', 'Usage: zoneadd "zone", "member1; member2"', ''];
+  const [zone, membersStr] = parsed;
+  const z = switchState.zones.find(z => z.name === zone);
+  if (!z) return [`zoneadd: zone "${zone}" not found`, ''];
+  const members = membersStr.split(';').map(m => m.trim()).filter(Boolean);
+  for (const m of members) {
+    if (!z.members.includes(m)) z.members.push(m);
+  }
+  switchState.unsavedChanges = true;
+  return [`Added members to zone "${zone}": ${members.join(', ')}`, ''];
+}
+
+function cmdZoneRemove(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['zoneremove: missing arguments', '', 'Usage: zoneremove "zone", "member"', ''];
+  const [zone, member] = parsed;
+  const z = switchState.zones.find(z => z.name === zone);
+  if (!z) return [`zoneremove: zone "${zone}" not found`, ''];
+  const idx = z.members.indexOf(member);
+  if (idx === -1) return [`zoneremove: member "${member}" not in zone "${zone}"`, ''];
+  z.members.splice(idx, 1);
+  switchState.unsavedChanges = true;
+  return [`Removed member "${member}" from zone "${zone}".`, ''];
+}
+
+function cmdZoneShow(args) {
+  const out = [];
+  if (args[0]) {
+    const z = switchState.zones.find(z => z.name === args[0]);
+    if (!z) return [`zoneshow: zone "${args[0]}" not found`, ''];
+    out.push(`zone: ${z.name}`);
+    for (const m of z.members) out.push(`  ${m}`);
+    out.push('');
+    return out;
+  }
+  out.push('Defined zones:');
+  out.push('');
+  for (const z of switchState.zones) {
+    out.push(`  zone: ${z.name}`);
+    for (const m of z.members) out.push(`    ${m}`, 'dim');
+    out.push('');
+  }
+  out.push(`Active configuration: ${switchState.activeConfig}`, 'success');
+  return out;
+}
+
+function cmdCfgCreate(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['cfgcreate: missing arguments', '', 'Usage: cfgcreate "cfg", "zone1; zone2"', ''];
+  const [cfg, zonesStr] = parsed;
+  if (switchState.configs.find(c => c.name === cfg)) {
+    return [`cfgcreate: config "${cfg}" already exists`, ''];
+  }
+  const zones = zonesStr.split(';').map(m => m.trim()).filter(Boolean);
+  switchState.configs.push({ name: cfg, zones });
+  switchState.unsavedChanges = true;
+  return [`Configuration "${cfg}" created with zones: ${zones.join(', ')}`, ''];
+}
+
+function cmdCfgDelete(args) {
+  const parsed = parseArgsQuoted(args, 1);
+  if (parsed.length < 1) return ['cfgdelete: missing arguments', '', 'Usage: cfgdelete "cfg"', ''];
+  const cfg = parsed[0];
+  if (cfg === switchState.activeConfig) return [`cfgdelete: cannot delete active config "${cfg}"`, '', 'Disable it first with cfgdisable.', ''];
+  const idx = switchState.configs.findIndex(c => c.name === cfg);
+  if (idx === -1) return [`cfgdelete: config "${cfg}" not found`, ''];
+  switchState.configs.splice(idx, 1);
+  switchState.unsavedChanges = true;
+  return [`Configuration "${cfg}" deleted.`, ''];
+}
+
+function cmdCfgAdd(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['cfgadd: missing arguments', '', 'Usage: cfgadd "cfg", "zone1; zone2"', ''];
+  const [cfg, zonesStr] = parsed;
+  const c = switchState.configs.find(c => c.name === cfg);
+  if (!c) return [`cfgadd: config "${cfg}" not found`, ''];
+  const zones = zonesStr.split(';').map(m => m.trim()).filter(Boolean);
+  for (const z of zones) {
+    if (!c.zones.includes(z)) c.zones.push(z);
+  }
+  switchState.unsavedChanges = true;
+  return [`Added zones to config "${cfg}": ${zones.join(', ')}`, ''];
+}
+
+function cmdCfgRemove(args) {
+  const parsed = parseArgsQuoted(args, 2);
+  if (parsed.length < 2) return ['cfgremove: missing arguments', '', 'Usage: cfgremove "cfg", "zone1"', ''];
+  const [cfg, zonesStr] = parsed;
+  const c = switchState.configs.find(c => c.name === cfg);
+  if (!c) return [`cfgremove: config "${cfg}" not found`, ''];
+  const zones = zonesStr.split(';').map(m => m.trim()).filter(Boolean);
+  for (const z of zones) {
+    const i = c.zones.indexOf(z);
+    if (i !== -1) c.zones.splice(i, 1);
+  }
+  switchState.unsavedChanges = true;
+  return [`Removed zones from config "${cfg}": ${zones.join(', ')}`, ''];
+}
+
+function cmdCfgShow() {
+  const out = [];
+  out.push('Defined configurations:');
+  out.push('');
+  for (const c of switchState.configs) {
+    const active = c.name === switchState.activeConfig ? ' (active)' : '';
+    out.push(`  cfg: ${c.name}${active}`, c.name === switchState.activeConfig ? 'success' : '');
+    for (const z of c.zones) out.push(`    ${z}`, 'dim');
+    out.push('');
+  }
+  return out;
+}
+
+function cmdCfgSave() {
+  if (!switchState.unsavedChanges) {
+    return ['No changes to save.', ''];
+  }
+  switchState.unsavedChanges = false;
+  return [
+    'Saving configuration to flash...',
+    'Compressing zone database...',
+    'Writing to NVRAM...',
+    'Verifying...',
+    '',
+    'Configuration saved successfully.', 'success'
+  ];
+}
+
+function cmdCfgEnable(args) {
+  const parsed = parseArgsQuoted(args, 1);
+  if (parsed.length < 1) return ['cfgenable: missing arguments', '', 'Usage: cfgenable "cfg"', ''];
+  const cfg = parsed[0];
+  const c = switchState.configs.find(c => c.name === cfg);
+  if (!c) return [`cfgenable: config "${cfg}" not found`, ''];
+  const old = switchState.activeConfig;
+  switchState.activeConfig = cfg;
+  switchState.unsavedChanges = true;
+  return [
+    `Disabling old configuration "${old}"...`,
+    `Enabling configuration "${cfg}"...`,
+    'Updating zone database...',
+    'Activating hardware zones...',
+    '',
+    `Configuration "${cfg}" enabled successfully.`, 'success',
+    '',
+    'Run cfgsave to persist this change.', 'dim'
+  ];
+}
+
+function cmdCfgDisable() {
+  switchState.activeConfig = null;
+  switchState.unsavedChanges = true;
+  return [
+    'Disabling zoning...',
+    'Switch back to soft zone mode.',
+    '',
+    'WARNING: All zones are now inactive!', 'warn'
+  ];
+}
+
+function cmdFirmwareShow() {
+  return [
+    'Firmware version information:',
+    '',
+    `  Switch:    ${switchState.firmware}`,
+    `  Primary:   ${switchState.firmware}`,
+    '  Secondary: v8.2.2 (committed)',
+    '  Boot:      v1.0.6',
+    '',
+    'Release notes: ftp.brocade.com/releases/8.2.3a',
+    ''
+  ];
+}
+
+async function cmdFirmwareDownload(args) {
+  const host = args.find(a => !a.startsWith('-'));
+  if (!host) return ['firmwaredownload: missing host', '', 'Usage: firmwaredownload [-s] <host:path>', ''];
+  const silent = args.includes('-s');
+  busy = true;
+  input.disabled = true;
+  cursor.style.display = 'none';
+
+  const out = [];
+  const lines = [
+    `Connecting to ${host}...`,
+    'Negotiating protocol...',
+    'Protocol: SFTP',
+    'Connected.',
+    `Downloading firmware image v8.3.1 (FOS_v8.3.1.bin)...`,
+  ];
+
+  for (const l of lines) {
+    print(l, 'dim');
+    await wait(400);
+  }
+
+  // Progress bar
+  const progLine = document.createElement('div');
+  progLine.className = 'line';
+  term.appendChild(progLine);
+  for (let i = 0; i <= 100; i += 5) {
+    const bar = '█'.repeat(i / 5) + '░'.repeat(20 - i / 5);
+    progLine.textContent = `Progress: [${bar}] ${i}%   ${Math.round(125 * i / 100)} MB / 125 MB`;
+    progLine.className = 'line';
+    term.scrollTop = term.scrollHeight;
+    await wait(80);
+  }
+
+  print('');
+  await typePrint('Verifying image checksum...', 'dim', 8);
+  await wait(400);
+  await typePrint('Checksum: OK', 'success', 6);
+  await wait(300);
+  await typePrint('Image validated. Reboot required to apply.', 'warn', 6);
+  print('');
+  await typePrint('NOTE: Switch will reboot automatically.', 'warn', 6);
+  await typePrint('Run "reboot" to schedule, or it will occur in 60s.', 'dim', 4);
+  print('');
+
+  busy = false;
+  input.disabled = false;
+  cursor.style.display = 'inline-block';
+  focusInput();
+  return [];
+}
+
+function cmdChassisShow() {
+  return [
+    `Chassis information:`,
+    '',
+    `  Model:           Brocade 6520`,
+    `  Serial number:   BDX6520-2X4ABCDEF`,
+    `  Part number:     60-1003221-04`,
+    `  Manufactured:    2023-W42`,
+    `  WWN:             ${switchState.wwn}`,
+    `  Domain ID:       ${switchState.domainId}`,
+    `  Switch name:     ${switchState.switchName}`,
+    `  Power-on hours:  8,742`,
+    `  Temperature:     ${switchState.temp}°C`,
+    '',
+    `  Blades installed:`,
+    `    Slot 0: 24-port 8G FC blade (CP)`,
+    `    Slot 1: 24-port 8G FC blade (CP)`,
+    '',
+  ];
+}
+
+function cmdTempShow() {
+  return [
+    `Temperature sensors:`,
+    '',
+    `  Sensor           Reading   Status   Threshold`,
+    `  ---------------  -------   ------   ---------`,
+    `  Switch Temp      ${switchState.temp}°C    OK       70°C`,
+    `  ASIC Temp        52°C      OK       95°C`,
+    `  Blade 0 Temp     41°C      OK       80°C`,
+    `  Blade 1 Temp     43°C      OK       80°C`,
+    `  FRU Temp         38°C      OK       70°C`,
+    '',
+  ];
+}
+
+function cmdFanShow() {
+  return [
+    `Fan status:`,
+    '',
+    `  Fan tray 1:  ${switchState.fanStatus}   RPM: 8420`,
+    `  Fan tray 2:  ${switchState.fanStatus}   RPM: 8510`,
+    `  Fan tray 3:  ${switchState.fanStatus}   RPM: 8380`,
+    '',
+  ];
+}
+
+function cmdPsShow() {
+  return [
+    `Power supply status:`,
+    '',
+    `  PS1:  ${switchState.powerStatus}   110V   In: 2.4A`,
+    `  PS2:  ${switchState.powerStatus}   110V   In: 2.5A`,
+    '',
+  ];
+}
+
+function cmdSensorShow() {
+  return [
+    `Sensor summary:`,
+    '',
+    `  Temperature:  ${switchState.temp}°C (OK)`,
+    `  Fans:         ${switchState.fanStatus}`,
+    `  Power:        ${switchState.powerStatus}`,
+    `  Voltage:      OK (3.3V, 5V, 12V)`,
+    `  Battery:      OK (CMOS backup)`,
+    `  Flash:        OK`,
+    '',
+  ];
+}
+
+function cmdDate(args) {
+  if (args.length === 0) {
+    const d = new Date();
+    return [`System Time: ${d.toString()}`, ''];
+  }
+  return [`date: setting date not supported in simulation`, ''];
+}
+
+function cmdUptime() {
+  const ms = Date.now() - switchState.bootTime;
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return [
+    `Switch uptime: ${h}h ${m}m ${sec}s`,
+    `Boot time: ${new Date(switchState.bootTime).toString()}`,
+    `Active ports: ${switchState.portStatus.filter(p => p.state === 'Online').length}`,
+    ''
+  ];
+}
+
+function cmdNsShow() {
+  const out = ['Name server entries (local):', '', '  Type  Pid   PortName               NodeName', '  ----  ----  -------               -------'];
+  const types = ['N', 'N', 'N', 'NL', 'N', 'N', 'N', 'N'];
+  for (let i = 0; i < 6; i++) {
+    const a = switchState.aliases[i % switchState.aliases.length];
+    const pid = '0x' + (0x010100 + i).toString(16);
+    const portName = a.wwn;
+    const nodeName = '20:00:00:' + a.wwn.slice(9);
+    out.push(`  ${types[i]}     ${pid}  ${portName}  ${nodeName}`);
+  }
+  out.push('');
+  return out;
+}
+
+function cmdNsAllShow() {
+  const out = ['Name server entries (all):', ''];
+  for (const a of switchState.aliases) {
+    out.push(`  ${a.name.padEnd(18)} ${a.wwn}`);
+  }
+  out.push('');
+  return out;
+}
+
+function cmdFabricShow() {
+  return [
+    `Fabric topology:`,
+    '',
+    `  Switch WWN              Domain  SwitchName     Role       State`,
+    `  --------------------   ------   ------------   ---------  -----`,
+    `  ${switchState.wwn}   ${pad(switchState.domainId, 6)}   ${pad(switchState.switchName, 12)}    ${pad(switchState.role, 9)}  ${switchState.state}`,
+    `  10:00:50:eb:1a:23:89:01   2       SWITCH_02      Subordinate  Online`,
+    `  10:00:50:eb:1a:23:ab:cd   3       SWITCH_03      Subordinate  Online`,
+    '',
+    `Total switches in fabric: 3`,
+    `ISL links: 4`,
+    '',
+  ];
+}
+
+function cmdTopologyShow() {
+  return [
+    `Fabric topology information:`,
+    '',
+    `  SwitchId  Domain  WWN                   Name         Role       ISLs`,
+    `  --------  ------  --------------------   ----------   ---------  ----`,
+    `  fffc01    ${switchState.domainId}       ${switchState.wwn}  ${switchState.switchName}    ${switchState.role}     ${switchState.EPorts / 2}`,
+    `  fffc02    2        10:00:50:eb:1a:23:89:01  SWITCH_02    Subordinate 2`,
+    `  fffc03    3        10:00:50:eb:1a:23:ab:cd  SWITCH_03    Subordinate 2`,
+    '',
+  ];
+}
+
+async function cmdTraceroute(args) {
+  if (!args[0]) return ['traceroute: missing host', 'Usage: traceroute <ip>'];
+  busy = true;
+  input.disabled = true;
+  cursor.style.display = 'none';
+  print(`traceroute to ${args[0]} (10.0.0.${Math.floor(Math.random() * 250 + 1)}), 30 hops max, 60 byte packets`, 'dim');
+  const hops = [
+    { ip: '10.0.0.1', name: 'gateway.local', t: [0.4, 0.3, 0.5] },
+    { ip: '10.0.1.1', name: 'core-sw01.local', t: [1.2, 1.0, 1.4] },
+    { ip: '10.0.2.1', name: 'dist-rtr.local', t: [2.1, 1.9, 2.3] },
+    { ip: args[0], name: 'target.san.local', t: [2.5, 2.4, 2.6] }
+  ];
+  for (let i = 0; i < hops.length; i++) {
+    await wait(500);
+    const h = hops[i];
+    print(` ${i + 1}  ${pad(h.name, 24)} (${h.ip})  ${h.t[0]} ms  ${h.t[1]} ms  ${h.t[2]} ms`);
+  }
+  print('');
+  busy = false;
+  input.disabled = false;
+  cursor.style.display = 'inline-block';
+  focusInput();
+  return [];
+}
+
+async function cmdPing(args) {
+  if (!args[0]) return ['ping: missing host', 'Usage: ping <host>'];
+  busy = true;
+  input.disabled = true;
+  cursor.style.display = 'none';
+  const target = args[0];
+  const ip = `10.0.0.${Math.floor(Math.random() * 250 + 1)}`;
+  print(`PING ${target} (${ip}): 56 data bytes`, 'dim');
+  for (let i = 0; i < 4; i++) {
+    await wait(700);
+    const t = (Math.random() * 2 + 0.4).toFixed(3);
+    print(`64 bytes from ${target} (${ip}): icmp_seq=${i} ttl=64 time=${t} ms`);
+  }
+  print('');
+  print(`--- ${target} ping statistics ---`, 'dim');
+  print(`4 packets transmitted, 4 received, 0% packet loss`, 'success');
+  print(`round-trip min/avg/max = 0.4/1.2/2.1 ms`, 'dim');
+  print('');
+  busy = false;
+  input.disabled = false;
+  cursor.style.display = 'inline-block';
+  focusInput();
+  return [];
+}
+
+function cmdIpAddrShow() {
+  return [
+    `IP address configuration:`,
+    '',
+    `  Ethernet IP Address: 10.0.0.10`,
+    `  Ethernet Subnetmask: 255.255.255.0`,
+    `  Gateway IP Address:  10.0.0.1`,
+    `  DHCP:               Disabled`,
+    `  IPv6:               Enabled (fe80::50eb:1aff:fe23:4567)`,
+    `  IP Fragmentation:   Disabled`,
+    `  Old Ethernet IP:     10.0.0.10`,
+    `  Old Ethernet Subnet: 255.255.255.0`,
+    `  Old Gateway IP:      10.0.0.1`,
+    '',
+  ];
+}
+
+function cmdVersion() {
+  return [
+    `Fabric OS:    ${switchState.firmware}`,
+    `Kernel:       2.6.21.7-brocade`,
+    `Build:        Mar 15 2024 11:42:08 EST`,
+    `Commit:       a82f4cd (release)`,
+    `Switch:       Brocade 6520 (65.2)`,
+    `Serial:       BDX6520-2X4ABCDEF`,
+    '',
+  ];
+}
+
+function cmdAbout() {
+  return [
+    '╔══════════════════════════════════════════════════════════════╗',
+    '║         Brocade SAN Switch — Interactive CLI Simulator         ║',
+    '╚══════════════════════════════════════════════════════════════╝',
+    '',
+    'A terminal-style blog that behaves like a real TTY. All commands',
+    'execute against in-memory switch state — aliases, zones, configs',
+    'persist for the duration of your session.',
+    '',
+    'Try this workflow:',
+    '  1. switchshow           # inspect switch state',
+    '  2. alishow               # see defined aliases',
+    '  3. alicreate "new_hba", "21:00:00:24:ff:aa:bb:01"',
+    '  4. zonecreate "zone_new", "new_hba; stor_array_a"',
+    '  5. cfgadd "PROD_CFG", "zone_new"',
+    '  6. cfgenable "PROD_CFG"   # apply changes live',
+    '  7. cfgsave                 # persist to flash',
+    '',
+    'Other interesting commands:  firmwaredownload  sensorshow  nsallshow',
+    '                              fabricshow  traceroute  ping  about',
+    ''
+  ];
+}
+
+// ---------- Execute Command ----------
+async function executeCommand(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+  print(`${promptText.textContent}${trimmed}`, 'prompt-line');
+
+  const tokens = parseArgs(trimmed);
+  const cmd = tokens[0];
+  const args = tokens.slice(1);
+
+  if (!commands[cmd]) {
+    print(`bash: ${cmd}: command not found`, 'error');
+    print(`Type "help" to see available commands.`, 'dim');
+    print('');
+    return;
+  }
+
+  try {
+    const result = await commands[cmd].fn(args);
+    if (Array.isArray(result)) {
+      for (const ln of result) {
+        if (typeof ln === 'object' && ln !== null) {
+          print(ln.text, ln.cls || '');
+        } else {
+          print(ln);
+        }
+      }
+    }
+  } catch (e) {
+    print(`error: ${e.message}`, 'error');
+  }
+  updatePrompt();
+}
+
+// ---------- Tab Completion ----------
+function tabComplete(val) {
+  const tokens = val.split(/\s+/);
+  // Command completion
+  if (tokens.length === 1) {
+    const partial = tokens[0];
+    const matches = Object.keys(commands).filter(c => c.startsWith(partial));
+    if (matches.length === 0) return val;
+    if (matches.length === 1) return matches[0] + ' ';
+    // Common prefix
+    let prefix = matches[0];
+    for (const m of matches) {
+      let i = 0;
+      while (i < prefix.length && prefix[i] === m[i]) i++;
+      prefix = prefix.slice(0, i);
+    }
+    if (prefix.length > partial.length) return prefix;
+    // Print options
+    print(`${promptText.textContent}${val}`, 'prompt-line');
+    print(matches.map(m => `  ${m}`).join('\n'), 'dim');
+    print('');
+    return val;
+  }
+  // Subcommand/alias completion for second arg
+  const cmd = tokens[0];
+  if (tokens.length === 2) {
+    if (['alidelete', 'zoneadd', 'zoneremove', 'zonedelete', 'cfgadd', 'cfgremove', 'cfgenable', 'cfgdelete'].includes(cmd)) {
+      const partial = tokens[1];
+      let list = [];
+      if (['alidelete', 'zoneadd', 'zoneremove'].includes(cmd)) list = switchState.aliases.map(a => a.name);
+      if (cmd === 'zonedelete' || cmd === 'zoneadd' || cmd === 'zoneremove') list = switchState.zones.map(z => z.name);
+      if (['cfgadd', 'cfgremove', 'cfgenable', 'cfgdelete'].includes(cmd)) list = switchState.configs.map(c => c.name);
+      const matches = list.filter(n => n.startsWith(partial));
+      if (matches.length === 1) return tokens[0] + ' ' + matches[0];
+      if (matches.length > 1) {
+        print(`${promptText.textContent}${val}`, 'prompt-line');
+        print(matches.map(m => `  ${m}`).join('\n'), 'dim');
+        print('');
+      }
+    }
+  }
+  return val;
+}
+
+// ---------- Input Handlers ----------
+function handleKey(e) {
+  if (busy) { e.preventDefault(); return; }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const val = input.value;
+    input.value = '';
+    updateCursor();
+    if (val.trim()) {
+      commandHistory.push(val);
+      if (commandHistory.length > 100) commandHistory.shift();
+    }
+    historyIdx = -1;
+    executeCommand(val);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const newVal = tabComplete(input.value);
+    input.value = newVal;
+    updateCursor();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (commandHistory.length === 0) return;
+    if (historyIdx === -1) historyIdx = commandHistory.length - 1;
+    else if (historyIdx > 0) historyIdx--;
+    input.value = commandHistory[historyIdx] || '';
+    updateCursor();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (historyIdx === -1) return;
+    if (historyIdx < commandHistory.length - 1) {
+      historyIdx++;
+      input.value = commandHistory[historyIdx];
+    } else {
+      historyIdx = -1;
+      input.value = '';
+    }
+    updateCursor();
+  } else if (e.key === 'l' && e.ctrlKey) {
+    e.preventDefault();
+    clearTerminal();
+  } else if (e.key === 'c' && e.ctrlKey) {
+    e.preventDefault();
+    print(`${promptText.textContent}${input.value}^C`, 'prompt-line');
+    input.value = '';
+    updateCursor();
+  } else if (e.key === 'u' && e.ctrlKey) {
+    e.preventDefault();
+    input.value = '';
+    updateCursor();
+  }
+}
+
+// ---------- Status bar updates ----------
+function updateStatusBar() {
+  // Session timer
+  const elapsed = Math.floor((Date.now() - switchState.bootTime) / 1000);
+  if (switchState.loggedIn) {
+    const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    sessionTimeEl.textContent = `SESSION ${h}:${m}:${s}`;
+  }
+
+  // Throughput (fake fluctuating)
+  const tp = Math.floor(Math.random() * 800 + 200);
+  throughputEl.textContent = `${tp} Mb/s`;
+}
+
+setInterval(updateStatusBar, 1000);
+
+// ---------- Init ----------
+document.addEventListener('click', focusInput);
+input.addEventListener('keydown', handleKey);
+input.addEventListener('input', updateCursor);
+input.addEventListener('click', updateCursor);
+input.addEventListener('focus', () => {
+  cursor.style.display = 'inline-block';
+});
+input.addEventListener('blur', () => {
+  // Keep cursor visible so user knows where focus is
+  cursor.style.display = 'inline-block';
+});
+
+window.addEventListener('load', async () => {
+  switchState.bootTime = Date.now();
+  await bootSequence();
+  // Recurring fake activity hints
+  setInterval(() => {
+    if (!busy && Math.random() < 0.3) {
+      const hints = [
+        'Tip: try "switchshow" to see all ports',
+        'Tip: zoneshow lists all defined zones',
+        'Tip: type "help <command>" for usage',
+        'Tip: Tab autocompletes commands and aliases',
+        'Tip: arrow keys cycle through history',
+        'Tip: about shows the demo workflow',
+        'Tip: firmwaredownload simulates an upgrade'
+      ];
+      hintText.innerHTML = `<span style="color:var(--phosphor)">${hints[Math.floor(Math.random() * hints.length)]}</span>`;
+    }
+  }, 8000);
+});
+</script>
+</body>
+</html>
